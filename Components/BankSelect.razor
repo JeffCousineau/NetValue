@@ -1,0 +1,30 @@
+<div class="bank-field">
+    <select aria-label="@Label" value="@Selection" @onchange="SelectBank">
+        <option value="">Bank / institution (optional)</option>
+        @foreach (var bank in Banks) { <option value="@bank">@bank</option> }
+        <option value="__other">Other institution…</option>
+    </select>
+    @if (other)
+    {
+        <input aria-label="Other institution name" placeholder="Institution name" maxlength="100" value="@Value" @onchange="e => ValueChanged.InvokeAsync(e.Value?.ToString()?.Trim() ?? string.Empty)" />
+    }
+</div>
+
+@code {
+    [Parameter] public string Value { get; set; } = "";
+    [Parameter] public EventCallback<string> ValueChanged { get; set; }
+    [Parameter] public string Label { get; set; } = "Bank or financial institution";
+    private static readonly string[] Banks = ["Desjardins", "Tangerine", "National Bank", "Wealthsimple", "BMO", "RBC", "TD", "CIBC", "Scotiabank", "Laurentian Bank", "EQ Bank", "Manulife Bank", "Alterna Bank", "Questrade", "Fondaction", "Fonds de solidarité FTQ"];
+    private bool other;
+    private string Selection => other ? "__other" : Value;
+    protected override void OnParametersSet()
+    {
+        if (!string.IsNullOrEmpty(Value) && !Banks.Contains(Value)) other = true;
+    }
+    private async Task SelectBank(ChangeEventArgs args)
+    {
+        var bank = args.Value?.ToString() ?? "";
+        other = bank == "__other";
+        await ValueChanged.InvokeAsync(other ? "" : bank);
+    }
+}

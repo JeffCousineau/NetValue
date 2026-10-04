@@ -1,0 +1,86 @@
+@using Microsoft.AspNetCore.Components.Forms
+@inject HouseholdSession Store
+
+@if (Store.IsOwner) { <MembershipSettings /> }
+
+<section class="accounts-panel settings-panel">
+    <h2>Export to Excel</h2>
+    <p>Download this household’s profiles, accounts, and monthly balances, with calculated totals in an Excel workbook.</p>
+    <a class="primary settings-link" href="/export/excel" download="NetValue.xlsx">Download Excel workbook</a>
+</section>
+<section class="accounts-panel settings-panel">
+    <h2>Back up &amp; move your data</h2>
+    <p>Download a complete backup of this household’s financial data. Restore it into your household on another installation to bring back its profiles, accounts, banks, and monthly balances. Sign-in identities and memberships are managed separately.</p>
+    <a class="primary settings-link" href="/export/backup" download="NetValue-backup.json">Download full backup</a>
+    <p class="settings-note">Downloads include the latest successfully saved data. Finish editing balances before downloading. The JSON backup preserves missing entries and zeroes exactly.</p>
+</section>
+@if (Store.IsOwner)
+{
+<section class="accounts-panel settings-panel">
+    <h2>Restore a backup</h2>
+    <p>Select a NetValue backup or an existing <code>portfolio.json</code> file. We’ll validate it and show a preview before restoring.</p>
+    <label class="restore-label" for="restore-file">Backup file (.json, maximum 10 MB)</label>
+    <InputFile id="restore-file" accept=".json,application/json" OnChange="PreviewBackup" disabled="@busy" />
+    @if (!string.IsNullOrEmpty(message)) { <p class="settings-success" role="status">@message</p> }
+    @if (!string.IsNullOrEmpty(error)) { <div class="error" role="alert">@error</div> }
+    @if (pending is not null)
+    {
+        <div class="restore-preview">
+            <h3>Ready to restore @fileName</h3>
+            <p>@pending.Count profiles · @pending.Sum(profile => profile.Accounts.Count) accounts · @pending.Sum(profile => profile.Months.Count) profile-months · @pending.Sum(profile => profile.Months.Values.Sum(balances => balances.Count)) saved balances</p>
+            <p><strong>This will replace this household’s financial data.</strong> Memberships and other households remain unchanged. A recovery copy is saved before replacement.</p>
+            <p class="settings-note">Close other NetValue tabs before restoring to avoid saving older data over the restored backup.</p>
+            <button class="primary danger-button" disabled="@busy" @onclick="Restore">Replace household data &amp; restore</button>
+            <button class="subtle" disabled="@busy" @onclick="Cancel">Cancel</button>
+        </div>
+    }
+    <p class="settings-note">Recovery copies are kept in <code>App_Data/backups</code>. You can select one here to restore it.</p>
+</section>
+
+}
+else
+{
+    <section class="accounts-panel settings-panel"><h2>Restore a backup</h2><p>Only a household owner can replace household data.</p></section>
+}
+
+@code {
+    [Parameter] public EventCallback<List<Profile>> OnRestored { get; set; }
+    private List<Profile>? pending;
+    private string fileName = "";
+    private string error = "";
+    private string message = "";
+    private bool busy;
+    private async Task PreviewBackup(InputFileChangeEventArgs args)
+    {
+        pending = null; error = ""; message = ""; busy = true;
+        try
+        {
+            fileName = args.File.Name;
+            await using var stream = args.File.OpenReadStream(PortfolioBackup.MaxBytes);
+            using var buffer = new MemoryStream();
+            await stream.CopyToAsync(buffer);
+            pending = PortfolioBackup.Read(buffer.ToArray());
+        }
+        catch (InvalidDataException exception) { error = exception.Message; }
+        catch (Exception) { error = "Could not read this backup. Choose a valid JSON file of 10 MB or smaller."; }
+        finally { busy = false; }
+    }
+    private async Task Restore()
+    {
+        if (pending is null || busy) return;
+        busy = true; error = ""; message = "";
+        try
+        {
+            Store.Restore(pending);
+            var restored = pending;
+            pending = null;
+            await OnRestored.InvokeAsync(restored);
+            message = "Backup restored. Your profiles, accounts, and monthly history are ready.";
+        }
+        catch (InvalidDataException exception) { error = exception.Message; }
+        catch (InvalidOperationException exception) { error = exception.Message; }
+        catch (Exception) { error = "Restore failed. Check the database connection and recovery backup directory, then try again."; }
+        finally { busy = false; }
+    }
+    private void Cancel() { pending = null; error = ""; message = ""; }
+}

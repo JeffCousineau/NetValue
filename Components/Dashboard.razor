@@ -1,0 +1,367 @@
+@page "/"
+@page "/error"
+@inject HouseholdSession Store
+<PageTitle>NetValue · Your monthly picture</PageTitle>
+
+@if (loadFailed)
+{
+    <section class="empty"><h1>Household access</h1><p role="alert">@error</p><p>No financial data has been loaded.</p><form method="post" action="/account/logout"><AntiforgeryToken /><button class="subtle" type="submit">Sign out</button></form></section>
+}
+else
+{
+<div class="shell">
+    <aside>
+        <a class="brand" href="/"> <span class="brand-icon">N</span> NetValue<span class="brand-dot">.</span></a>
+        <div class="workspace-label">PERSONAL FINANCE</div>
+        <div class="household-identity">@Store.Access?.Name <small>@Store.Access?.Role</small></div>
+        <form method="post" action="/account/logout"><AntiforgeryToken /><button class="subtle" type="submit">Sign out</button></form>
+        <nav class="view-nav" aria-label="Views">
+            <button class="view-button @(!showProgress && !showSettings ? "nav-active" : "")" @onclick="() => ChangeView(false, false)">◈ &nbsp; Monthly overview</button>
+            <button class="view-button @(showProgress && !showSettings ? "nav-active" : "")" @onclick="() => ChangeView(true, false)">↗ &nbsp; Progress</button>
+            <button class="view-button @(showSettings ? "nav-active" : "")" @onclick="() => ChangeView(false, true)">⚙ &nbsp; Settings</button>
+        </nav>
+        <div class="profile-heading">YOUR PROFILES</div>
+        @foreach (var profile in profiles)
+        {
+            <button class="profile-button @(selected == profile.Id ? "selected" : "")" @onclick="() => Select(profile.Id)"><span class="avatar">@profile.Name[..1].ToUpperInvariant()</span>@profile.Name</button>
+        }
+        @if (profiles.Count > 1)
+        {
+            <button class="profile-button @(selected is null ? "selected" : "")" @onclick="() => Select(null)"><span class="avatar">∑</span>Household</button>
+        }
+        <form @onsubmit="AddProfile" @onsubmit:preventDefault class="profile-form">
+            <input aria-label="New profile name" placeholder="Profile name" maxlength="60" @bind="profileName" />
+            <button class="subtle" type="submit">+ Add profile</button>
+        </form>
+        @if (Current is not null)
+        {
+            @if (renamingProfile)
+            {
+                <form class="profile-form" @onsubmit="RenameProfile" @onsubmit:preventDefault>
+                    <input aria-label="Profile name" maxlength="60" required @bind="editedProfileName" />
+                    <button class="primary" type="submit">Save name</button>
+                    <button class="subtle" type="button" @onclick="() => renamingProfile = false">Cancel</button>
+                </form>
+            }
+            else
+            {
+                <button class="subtle rename-profile" @onclick="BeginRenameProfile">Rename profile</button>
+            }
+        }
+        <div class="sidebar-note"><span class="status-dot"></span> Stored on this computer<p>A little clarity, every month.</p></div>
+    </aside>
+
+    <main>
+        <header>
+            <div><div class="eyebrow">YOUR MONEY, IN PERSPECTIVE</div><h1>@(showSettings ? "Settings" : showProgress ? "Your progress" : "Monthly overview")</h1><p>@(showSettings ? "Export, back up, and move your financial history." : showProgress ? "See how your financial picture changes over time." : "A clear picture of what you own and what you owe.")</p></div>
+            @if (!showProgress && !showSettings)
+            {
+                <div class="month-picker">
+                    <label for="month">MONTH ENDING</label>
+                    <div class="month-navigation">
+                        <button type="button" class="month-arrow" aria-label="Previous month" title="Previous month" disabled="@(month == "0001-01")" @onclick="() => MoveMonth(-1)">‹</button>
+                        <input id="month" type="month" min="0001-01" max="9999-12" value="@month" @onchange="MonthChanged" />
+                        <button type="button" class="month-arrow" aria-label="Next month" title="Next month" disabled="@(month == "9999-12")" @onclick="() => MoveMonth(1)">›</button>
+                    </div>
+                </div>
+            }
+        </header>
+        <div class="context-bar"><span><span class="status-dot"></span> @(Current?.Name ?? "Household") <span class="muted">/ Canadian dollars</span></span><span class="muted">@SaveStatus</span></div>
+        @if (!string.IsNullOrEmpty(error)) { <div class="error" role="alert">@error</div> }
+        @if (showSettings)
+        {
+            <SettingsView OnRestored="DataRestored" />
+        }
+        else if (showProgress)
+        {
+            <ProgressView Profile="Current" HouseholdProfiles="profiles" OnMonthSelected="ReviewMonth" />
+        }
+        else
+        {
+        <section class="metrics">
+            <article class="net-card"><div class="metric-label">NET WORTH <span>↗</span></div><MetricTotal Profiles="VisibleProfiles" Month="@month" Kind="MetricTotal.TotalKind.NetWorth" /><div class="metric-foot">Assets minus liabilities</div></article>
+            <article><div class="metric-label">TOTAL ASSETS <span class="green">↗</span></div><MetricTotal Profiles="VisibleProfiles" Month="@month" Kind="MetricTotal.TotalKind.Assets" /><div class="metric-foot">Cash, investments &amp; property</div></article>
+            <article><div class="metric-label">TOTAL LIABILITIES <span>↘</span></div><MetricTotal Profiles="VisibleProfiles" Month="@month" Kind="MetricTotal.TotalKind.Liabilities" /><div class="metric-foot">Credit cards, loans &amp; mortgage</div></article>
+        </section>
+        @if (profiles.Count == 0)
+        {
+            <section class="empty"><div class="empty-icon">◈</div><h2>Your financial picture starts here</h2><p>Add your first profile using the sidebar. Then enter your balances at the end of each month.</p></section>
+        }
+        else
+        {
+            <section class="accounts-panel">
+                <div class="panel-heading"><div><h2>@(Current is null ? "Household balances" : "Your accounts")</h2><p>@(Current is null ? "Combined amounts from all profiles for this month." : "Enter each account’s closing balance. Totals update as you go.")</p></div>
+                    @if (Current is not null)
+                    {
+                        <div class="copy-month-control">
+                            <label for="copy-source">Copy balances from</label>
+                            <div class="copy-month-actions">
+                                <select id="copy-source" @bind="copySource" disabled="@(!CopyMonths.Any())">
+                                    <option value="">Choose a saved month</option>
+                                    @foreach (var sourceMonth in CopyMonths)
+                                    {
+                                        <option value="@sourceMonth">@DateTime.ParseExact(sourceMonth, "yyyy-MM", CultureInfo.InvariantCulture).ToString("MMM yyyy", CultureInfo.GetCultureInfo("en-CA"))</option>
+                                    }
+                                </select>
+                                <button class="subtle" disabled="@(string.IsNullOrEmpty(copySource))" @onclick="CopyMonth">Copy to this month</button>
+                                <button class="subtle danger" disabled="@(!HasMonthBalances)" @onclick="() => confirmClearMonth = true">Clear this month</button>
+                            </div>
+                            <label class="copy-replace"><input type="checkbox" @bind="replaceBalances" @bind:after="ClearCopyMessage" disabled="@(!CopyMonths.Any())" /> Replace all balances in this month</label>
+                            <small>@(!CopyMonths.Any() ? "Save balances in another month to copy them here." : replaceBalances ? "Replaces this month’s balances. Accounts missing from the source are cleared." : "Fills missing balances only; existing entries are kept.")</small>
+                            @if (!string.IsNullOrEmpty(copyMessage)) { <small class="copy-result" role="status">@copyMessage</small> }
+                        </div>
+                    }
+                </div>
+                @if (confirmClearMonth && Current is not null)
+                {
+                    <div class="delete-confirm" role="alert">
+                        <p>Clear all balances for <strong>@Current.Name</strong> in <strong>@DateTime.ParseExact(month, "yyyy-MM", CultureInfo.InvariantCulture).ToString("MMMM yyyy", CultureInfo.GetCultureInfo("en-CA"))</strong>? Accounts will remain, but this month’s saved values will be removed. This cannot be undone.</p>
+                        <button class="primary danger-button" @onclick="ClearMonth">Clear all values</button>
+                        <button class="subtle" @onclick="() => confirmClearMonth = false">Cancel</button>
+                    </div>
+                }
+                @foreach (var kind in Enum.GetValues<AccountKind>())
+                {
+                    <div class="group-heading"><span>@KindLabel(kind)</span><span>@Money(Total(kind))</span></div>
+                    @foreach (var profile in VisibleProfiles)
+                    {
+                        @foreach (var account in profile.Accounts.Where(a => a.Kind == kind))
+                        {
+                            @if (editingAccount == account.Id && Current is not null)
+                            {
+                                <form class="add-account" @onsubmit="SaveAccount" @onsubmit:preventDefault>
+                                    <input aria-label="Edit account name" maxlength="100" required @bind="editedAccountName" />
+                                    <BankSelect @bind-Value="editedInstitution" Label="Edit bank or financial institution" />
+                                    <select aria-label="Edit account category" @bind="editedAccountKind">@foreach (var category in Enum.GetValues<AccountKind>()) { <option value="@category">@KindLabel(category)</option> }</select>
+                                    <button class="primary" type="submit">Save</button>
+                                    <button class="subtle" type="button" @onclick="() => editingAccount = null">Cancel</button>
+                                </form>
+                            }
+                            <div class="account-row" @key="account.Id"><div><span class="account-icon">@KindIcon(kind)</span><span>@account.Name</span>@if (!string.IsNullOrWhiteSpace(account.Institution)) { <small class="bank-badge">@account.Institution</small> }@if (Current is null) { <small>@profile.Name</small> }</div>
+                                @if (Current is not null)
+                                {
+                                    <div class="account-actions">
+                                        <div class="account-balance-history">
+                                            <div class="balance-input"><span>$</span><input type="number" step="0.01" min="0" aria-label="@($"{account.Name} balance")" @bind:get="BalanceText(profile, account)" @bind:set="value => UpdateBalance(profile, account, value)" /></div>
+                                            <small class="previous-balance">Last month: @PreviousBalance(profile, account)</small>
+                                        </div>
+                                        <button class="subtle" aria-label="@($"Edit {account.Name}")" @onclick="() => BeginEditAccount(account)">Edit</button>
+                                        <button class="subtle danger" aria-label="@($"Delete {account.Name}")" @onclick="() => pendingDelete = account.Id">Delete</button>
+                                    </div>
+                                }
+                                else
+                                {
+                                    <div class="account-balance-history"><span class="balance">@Money(Value(profile, account))</span><small class="previous-balance">Last month: @PreviousBalance(profile, account)</small></div>
+                                }
+                            </div>
+                            @if (pendingDelete == account.Id && Current is not null)
+                            {
+                                <div class="delete-confirm" role="alert">
+                                    <p>Delete <strong>@account.Name</strong>? This removes the account and its balances from every month. This cannot be undone.</p>
+                                    <button class="primary danger-button" @onclick="() => DeleteAccount(account.Id)">Delete account</button>
+                                    <button class="subtle" @onclick="() => pendingDelete = null">Cancel</button>
+                                </div>
+                            }
+                        }
+                    }
+                }
+                @if (Current is not null)
+                {
+                    <form class="add-account" @onsubmit="AddAccount" @onsubmit:preventDefault>
+                        <input placeholder="Account name" aria-label="Account name" maxlength="100" @bind="accountName" />
+                        <BankSelect @bind-Value="institution" />
+                        <select aria-label="Account category" @bind="accountKind">@foreach (var kind in Enum.GetValues<AccountKind>()) { <option value="@kind">@KindLabel(kind)</option> }</select>
+                        <button class="primary" type="submit">+ Add account</button>
+                    </form>
+                }
+            </section>
+            <section class="bottom-grid"><article class="insight"><span class="eyebrow">AVAILABLE TODAY</span><h2>@Money(Total(AccountKind.Cash) - Total(AccountKind.ShortTermDebt))</h2><p>Cash balances minus short-term liabilities.</p></article><article class="tip"><span class="eyebrow">A NOTE ON YOUR HOME</span><h3>Give your home a place in the picture.</h3><p>Enter your share of its full market value under Property, and your share of the mortgage under Long-term liabilities. This keeps household totals accurate.</p></article></section>
+        }
+        }
+        <footer>One month at a time. <span>NetValue · CAD</span></footer>
+    </main>
+</div>
+
+}
+
+@code {
+    private List<Profile> profiles = [];
+    private bool showProgress;
+    private bool showSettings;
+    private void ChangeView(bool progress, bool settings) { showProgress = progress; showSettings = settings; }
+    private void DataRestored(List<Profile> restored)
+    {
+        profiles = restored;
+        Select(profiles.FirstOrDefault()?.Id);
+        loadFailed = false;
+        error = "";
+        SaveStatus = "All changes saved";
+    }
+    private void ReviewMonth(string value) { month = value; showProgress = false; ResetCopySource(); }
+    private Guid? selected;
+    private string month = DateTime.Today.ToString("yyyy-MM");
+    private string copySource = "";
+    private string copyMessage = "";
+    private bool replaceBalances;
+    private bool confirmClearMonth;
+    private bool HasMonthBalances => Current is not null && Current.Months.TryGetValue(month, out var balances) && balances.Count > 0;
+    private void ClearMonth()
+    {
+        if (!confirmClearMonth || Current is null) return;
+        Current.Months.Remove(month);
+        ResetCopySource();
+        Save();
+        if (string.IsNullOrEmpty(error)) copyMessage = "All values for this month have been cleared.";
+    }
+    private void ClearCopyMessage() { copyMessage = ""; }
+    private IEnumerable<string> CopyMonths => Current is null ? [] : Current.Months
+        .Where(entry => entry.Key != month && entry.Value.Keys.Any(id => Current.Accounts.Any(account => account.Id == id))
+            && DateTime.TryParseExact(entry.Key, "yyyy-MM", CultureInfo.InvariantCulture, DateTimeStyles.None, out _))
+        .Select(entry => entry.Key).OrderByDescending(value => value);
+    private void ResetCopySource()
+    {
+        confirmClearMonth = false;
+        copyMessage = "";
+        replaceBalances = false;
+        var date = DateTime.ParseExact(month, "yyyy-MM", CultureInfo.InvariantCulture);
+        var previous = date > DateTime.MinValue ? date.AddMonths(-1).ToString("yyyy-MM") : "";
+        var available = CopyMonths.ToList();
+        copySource = available.Contains(previous) ? previous : available.FirstOrDefault(value => string.CompareOrdinal(value, month) < 0) ?? available.FirstOrDefault() ?? "";
+    }
+    private string profileName = "";
+    private string accountName = "";
+    private string institution = "";
+    private string editedInstitution = "";
+    private AccountKind accountKind;
+    private bool renamingProfile;
+    private string editedProfileName = "";
+    private Guid? editingAccount;
+    private Guid? pendingDelete;
+    private string editedAccountName = "";
+    private AccountKind editedAccountKind;
+    private string error = "";
+    private bool loadFailed;
+    private string SaveStatus = "Changes save automatically";
+    private Profile? Current => profiles.FirstOrDefault(p => p.Id == selected);
+    private IEnumerable<Profile> VisibleProfiles => Current is { } p ? new[] { p } : profiles;
+    private decimal TotalAssets => Total(AccountKind.Cash) + Total(AccountKind.Investment) + Total(AccountKind.Property);
+    private decimal Debts => Total(AccountKind.ShortTermDebt) + Total(AccountKind.LongTermDebt);
+    protected override async Task OnInitializedAsync()
+    {
+        try { await Store.InitializeAsync(); profiles = Store.Load(); selected = profiles.FirstOrDefault()?.Id; ResetCopySource(); }
+        catch (UnauthorizedAccessException exception) { loadFailed = true; error = exception.Message; }
+        catch (Exception) { loadFailed = true; error = "Your household data could not be loaded. Check the local data and configuration, then restart."; }
+    }
+    private void Select(Guid? id) { selected = id; renamingProfile = false; editingAccount = null; pendingDelete = null; ResetCopySource(); }
+    private void BeginRenameProfile()
+    {
+        if (Current is null) return;
+        editedProfileName = Current.Name;
+        renamingProfile = true;
+    }
+    private void RenameProfile()
+    {
+        if (Current is null || string.IsNullOrWhiteSpace(editedProfileName)) { error = "Enter a profile name."; return; }
+        Current.Name = editedProfileName.Trim();
+        renamingProfile = false;
+        Save();
+    }
+    private void BeginEditAccount(Account account)
+    {
+        editingAccount = account.Id;
+        editedAccountName = account.Name;
+        editedInstitution = account.Institution;
+        editedAccountKind = account.Kind;
+        pendingDelete = null;
+    }
+    private void SaveAccount()
+    {
+        var account = Current?.Accounts.FirstOrDefault(a => a.Id == editingAccount);
+        if (account is null) return;
+        if (string.IsNullOrWhiteSpace(editedAccountName)) { error = "Enter an account name."; return; }
+        account.Name = editedAccountName.Trim();
+        account.Institution = editedInstitution.Trim();
+        account.Kind = editedAccountKind;
+        editingAccount = null;
+        Save();
+    }
+    private void DeleteAccount(Guid id)
+    {
+        if (Current is null || pendingDelete != id) return;
+        Current.Accounts.RemoveAll(a => a.Id == id);
+        foreach (var balances in Current.Months.Values) balances.Remove(id);
+        pendingDelete = null;
+        if (editingAccount == id) editingAccount = null;
+        Save();
+    }
+    private void MonthChanged(ChangeEventArgs args)
+    {
+        if (DateTime.TryParseExact(args.Value?.ToString(), "yyyy-MM", CultureInfo.InvariantCulture, DateTimeStyles.None, out var date))
+        {
+            month = date.ToString("yyyy-MM");
+            ResetCopySource();
+        }
+    }
+    private void MoveMonth(int direction)
+    {
+        var date = DateTime.ParseExact(month, "yyyy-MM", CultureInfo.InvariantCulture);
+        if (direction < 0 && month == "0001-01" || direction > 0 && month == "9999-12") return;
+        month = date.AddMonths(direction).ToString("yyyy-MM");
+        ResetCopySource();
+    }
+    private static string Money(decimal value) => value.ToString("C2", CultureInfo.GetCultureInfo("en-CA"));
+    private decimal Value(Profile profile, Account account) => profile.Months.TryGetValue(month, out var balances) ? balances.GetValueOrDefault(account.Id) : 0;
+    private string PreviousBalance(Profile profile, Account account)
+    {
+        var date = DateTime.ParseExact(month, "yyyy-MM", CultureInfo.InvariantCulture);
+        if (date == DateTime.MinValue) return "Not entered";
+        var previousMonth = date.AddMonths(-1).ToString("yyyy-MM");
+        return profile.Months.TryGetValue(previousMonth, out var balances) && balances.TryGetValue(account.Id, out var amount)
+            ? Money(amount) : "Not entered";
+    }
+    private string BalanceText(Profile profile, Account account) => Value(profile, account).ToString("F2", CultureInfo.InvariantCulture);
+    private decimal Total(AccountKind kind) => VisibleProfiles.Sum(p => p.Accounts.Where(a => a.Kind == kind).Sum(a => Value(p, a)));
+    private void Save()
+    {
+        try { Store.Save(profiles); error = ""; SaveStatus = "All changes saved"; }
+        catch (UnauthorizedAccessException) { loadFailed = true; profiles = []; error = "Your household access has changed or your session expired. Sign in again."; SaveStatus = "Unsaved changes"; }
+        catch (InvalidOperationException exception) { error = exception.Message; SaveStatus = "Unsaved changes"; }
+        catch (Exception) { error = "Could not save changes. Check that the App_Data folder is writable, then try again."; SaveStatus = "Unsaved changes"; }
+    }
+    private void AddProfile()
+    {
+        if (loadFailed) return;
+        if (string.IsNullOrWhiteSpace(profileName)) return;
+        var profile = new Profile { Name = profileName.Trim(), Accounts = [new() { Name = "Chequing", Kind = AccountKind.Cash }, new() { Name = "Savings / TFSA", Kind = AccountKind.Investment }, new() { Name = "RRSP", Kind = AccountKind.Investment }, new() { Name = "Home (your share)", Kind = AccountKind.Property }, new() { Name = "Credit card", Kind = AccountKind.ShortTermDebt }, new() { Name = "Mortgage (your share)", Kind = AccountKind.LongTermDebt }] };
+        profiles.Add(profile); Select(profile.Id); profileName = ""; Save();
+    }
+    private void AddAccount()
+    {
+        if (Current is null || string.IsNullOrWhiteSpace(accountName)) return;
+        Current.Accounts.Add(new Account { Name = accountName.Trim(), Kind = accountKind, Institution = institution.Trim() }); accountName = ""; institution = ""; Save();
+    }
+    private void UpdateBalance(Profile profile, Account account, string? value)
+    {
+        if (!decimal.TryParse(value, NumberStyles.Number, CultureInfo.InvariantCulture, out var amount) || amount < 0) { error = "Enter a valid amount of zero or more."; return; }
+        if (!profile.Months.TryGetValue(month, out var balances)) profile.Months[month] = balances = [];
+        balances[account.Id] = amount; Save();
+    }
+    private void CopyMonth()
+    {
+        confirmClearMonth = false;
+        copyMessage = "";
+        if (Current is null || copySource == month || !CopyMonths.Contains(copySource)) { error = "Choose another saved month to copy from."; return; }
+        var source = Current.Months[copySource];
+        if (!Current.Months.TryGetValue(month, out var target)) Current.Months[month] = target = [];
+        if (replaceBalances) target.Clear();
+        var copied = 0;
+        foreach (var account in Current.Accounts)
+            if (source.TryGetValue(account.Id, out var amount) && target.TryAdd(account.Id, amount)) copied++;
+        Save();
+        if (string.IsNullOrEmpty(error)) copyMessage = replaceBalances
+            ? $"Replaced this month’s balances with {copied} balance(s) from the selected month."
+            : copied == 0 ? "No missing balances to fill from this month." : $"Copied {copied} balance(s). Existing entries were kept.";
+    }
+    private static string KindLabel(AccountKind kind) => kind switch { AccountKind.Cash => "Cash & bank accounts", AccountKind.Investment => "Investments & retirement", AccountKind.Property => "Property", AccountKind.ShortTermDebt => "Short-term liabilities", _ => "Long-term liabilities" };
+    private static string KindIcon(AccountKind kind) => kind switch { AccountKind.Cash => "▤", AccountKind.Investment => "↗", AccountKind.Property => "⌂", _ => "−" };
+}

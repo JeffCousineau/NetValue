@@ -1,0 +1,96 @@
+@if (selectedProfiles.Count == 0)
+{
+    <section class="empty"><h2>Add a profile to see your progress</h2><p>Create your first profile in the sidebar, then enter monthly balances.</p></section>
+}
+else if (rows.Count == 0)
+{
+    <section class="empty"><div class="empty-icon">↗</div><h2>Your progress starts with your first month</h2><p>Enter balances in Monthly overview for @(Profile?.Name ?? "each household profile"). Return here to see your history grow.</p></section>
+}
+else
+{
+    var first = rows[0];
+    var latest = rows[^1];
+    var change = latest.NetWorth - first.NetWorth;
+    <section class="metrics">
+        <article class="net-card"><div class="metric-label">LATEST NET WORTH</div><MetricTotal Profiles="selectedProfiles" Month="@(latest.Month.ToString("yyyy-MM"))" Kind="MetricTotal.TotalKind.NetWorth" /><div class="metric-foot">@MonthLabel(latest.Month)</div></article>
+        <article><div class="metric-label">CHANGE SINCE FIRST MONTH</div><div class="metric-value @ChangeClass(change)">@(rows.Count > 1 ? SignedMoney(change) : "—")</div><div class="metric-foot">@(rows.Count > 1 ? Percentage(change, first.NetWorth) + " · since " + MonthLabel(first.Month) : "Add another month to compare")</div></article>
+        <article><div class="metric-label">MONTHS RECORDED</div><div class="metric-value">@rows.Count</div><div class="metric-foot">@MonthLabel(first.Month) – @MonthLabel(latest.Month)</div></article>
+    </section>
+    <section class="accounts-panel">
+        <div class="panel-heading"><div><h2>Net worth over time</h2><p>@DisplayName · Assets minus liabilities in CAD</p>@if (Profile is null) { <p>Combined balances from @selectedProfiles.Count profiles.</p> }</div></div>
+        <div class="progress-chart">
+            <div class="chart-axis"><span>@Money(maximum)</span><span>@Money((maximum + minimum) / 2)</span><span>@Money(minimum)</span></div>
+            <svg viewBox="0 0 800 240" role="group" aria-label="@($"Net worth history for {DisplayName}. Hover or focus a point to see its value.")">
+                <line x1="20" y1="20" x2="780" y2="20" class="chart-grid" />
+                <line x1="20" y1="120" x2="780" y2="120" class="chart-grid" />
+                <line x1="20" y1="220" x2="780" y2="220" class="chart-grid" />
+                @if (rows.Count > 1) { <polyline points="@Points" class="chart-line" /> }
+                @foreach (var row in rows)
+                {
+                    <g class="chart-point-target" tabindex="0" role="img" aria-label="@($"{MonthLabel(row.Month)}: {Money(row.NetWorth)} net worth")">
+                        <circle cx="@Coordinate(X(row))" cy="@Coordinate(Y(row))" r="14" class="chart-point-hit" />
+                        <circle cx="@Coordinate(X(row))" cy="@Coordinate(Y(row))" r="5" class="chart-point" />
+                        <foreignObject x="@Coordinate(Math.Clamp(X(row) - 90, 10, 610))" y="@Coordinate(Y(row) < 90 ? Y(row) + 18 : Y(row) - 80)" width="180" height="70" class="chart-point-tooltip" aria-hidden="true">
+                            <div xmlns="http://www.w3.org/1999/xhtml" class="chart-tooltip-content"><span>@MonthLabel(row.Month)</span><strong>@Money(row.NetWorth)</strong></div>
+                        </foreignObject>
+                    </g>
+                }
+            </svg>
+            <div class="chart-dates"><span>@MonthLabel(first.Month)</span>@if (rows.Count > 1) { <span>@MonthLabel(latest.Month)</span> }</div>
+        </div>
+        <p class="progress-note">Hover or focus a point to see its month and net worth. Only months with entered balances are shown. Missing balances count as zero; partial months are marked below. The chart connects recorded months across any gaps.</p>
+        @if (Profile is null)
+        {
+            <p class="progress-note">Household totals use each profile’s balances for that exact month. Missing profile balances count as zero and are not carried forward. Enter only each person’s share of joint property and debt to avoid double counting.</p>
+        }
+    </section>
+    <section class="accounts-panel">
+        <div class="panel-heading"><div><h2>Monthly history</h2><p>Changes compare consecutive calendar months. Select a month to review its balances.</p></div></div>
+        <div class="history-scroll"><table class="history-table">
+            <thead><tr><th scope="col">Month</th><th scope="col">Assets</th><th scope="col">Liabilities</th><th scope="col">Net worth</th><th scope="col">Monthly change</th><th scope="col">Change %</th></tr></thead>
+            <tbody>
+                @for (var index = rows.Count - 1; index >= 0; index--)
+                {
+                    var row = rows[index];
+                    var previous = index > 0 ? rows[index - 1] : null;
+                    var difference = MonthlyProgress.Change(row, previous);
+                    <tr><td><button class="history-month" @onclick="() => ReviewMonth(row)">@MonthLabel(row.Month)</button>@if (row.EnteredAccounts < row.TotalAccounts) { <small class="partial-month">Partial · @row.EnteredAccounts/@row.TotalAccounts accounts</small> }</td><td>@Money(row.Assets)</td><td>@Money(row.Liabilities)</td><td class="history-net">@Money(row.NetWorth)</td><td class="@ChangeClass(difference)">@(difference is { } delta ? SignedMoney(delta) : "—")</td><td class="@ChangeClass(difference)">@(difference is { } value && previous is not null ? Percentage(value, previous.NetWorth) : "—")</td></tr>
+                }
+            </tbody>
+        </table></div>
+        <p class="progress-note">Percentage changes use the absolute previous net worth. A zero starting value has no percentage change. Account category edits and deletions apply to historical totals.</p>
+    </section>
+}
+
+@code {
+    [Parameter] public Profile? Profile { get; set; }
+    [Parameter] public IEnumerable<Profile> HouseholdProfiles { get; set; } = [];
+    [Parameter] public EventCallback<string> OnMonthSelected { get; set; }
+    private List<Profile> selectedProfiles = [];
+    private string DisplayName => Profile?.Name ?? "Household";
+    private List<MonthlySnapshot> rows = [];
+    private Task ReviewMonth(MonthlySnapshot row) => OnMonthSelected.InvokeAsync(row.Month.ToString("yyyy-MM"));
+    private decimal minimum;
+    private decimal maximum;
+    protected override void OnParametersSet()
+    {
+        selectedProfiles = Profile is null ? HouseholdProfiles.ToList() : [Profile];
+        rows = Profile is null ? MonthlyProgress.ForHousehold(selectedProfiles) : MonthlyProgress.For(Profile);
+        if (rows.Count == 0) return;
+        minimum = rows.Min(row => row.NetWorth);
+        maximum = rows.Max(row => row.NetWorth);
+        var padding = Math.Max((maximum - minimum) * .1m, 100m);
+        minimum -= padding;
+        maximum += padding;
+    }
+    private double X(MonthlySnapshot row) => rows.Count == 1 ? 400 : 20 + (row.Month - rows[0].Month).TotalDays / (rows[^1].Month - rows[0].Month).TotalDays * 760;
+    private decimal Y(MonthlySnapshot row) => 220 - (row.NetWorth - minimum) / (maximum - minimum) * 200;
+    private string Points => string.Join(" ", rows.Select(row => $"{Coordinate(X(row))},{Coordinate(Y(row))}"));
+    private static string Coordinate(double value) => value.ToString("0.##", CultureInfo.InvariantCulture);
+    private static string Coordinate(decimal value) => value.ToString("0.##", CultureInfo.InvariantCulture);
+    private static string Money(decimal value) => value.ToString("C2", CultureInfo.GetCultureInfo("en-CA"));
+    private static string SignedMoney(decimal value) => (value > 0 ? "+" : "") + Money(value);
+    private static string MonthLabel(DateTime value) => value.ToString("MMM yyyy", CultureInfo.GetCultureInfo("en-CA"));
+    private static string ChangeClass(decimal? value) => value > 0 ? "change-positive" : value < 0 ? "change-negative" : "";
+    private static string Percentage(decimal change, decimal previous) => MonthlyProgress.Percent(change, previous) is { } percentage ? (percentage > 0 ? "+" : "") + percentage.ToString("0.0", CultureInfo.GetCultureInfo("en-CA")) + "%" : "—";
+}

@@ -1,0 +1,59 @@
+@inject HouseholdSession Store
+
+<section class="accounts-panel settings-panel">
+    <h2>Household members</h2>
+    <p>Members can maintain profiles and balances and export this household’s data. Owners can also restore backups and manage membership.</p>
+    @if (!string.IsNullOrEmpty(error)) { <div class="error" role="alert">@error</div> }
+    @foreach (var member in members)
+    {
+        <div class="member-row"><div><strong>@member.Name</strong> · @member.Role<small>@member.ObjectId</small></div>
+            @if (member.ObjectId != Store.ObjectId)
+            {
+                <button class="subtle danger" @onclick="() => pendingRemoval = member">Remove access</button>
+            }
+        </div>
+    }
+    @if (pendingRemoval is { } removal)
+    {
+        <div class="delete-confirm"><p>Remove @removal.Name from this household?</p><button class="primary danger-button" @onclick="Remove">Remove access</button><button class="subtle" @onclick="() => pendingRemoval = null">Cancel</button></div>
+    }
+    <form class="membership-form" @onsubmit="Add" @onsubmit:preventDefault>
+        <input aria-label="Member name" placeholder="Member name" maxlength="100" required @bind="name" />
+        <input aria-label="Entra user Object ID" placeholder="Entra user Object ID" required @bind="objectId" />
+        <select aria-label="Household role" @bind="role"><option value="Member">Member</option><option value="Owner">Owner</option></select>
+        <button class="primary" type="submit">Add / update member</button>
+    </form>
+    <p class="settings-note">Invite the person into your Entra directory first. Use their user Object ID from Entra → Users, not an email address or application ID.</p>
+</section>
+
+@code {
+    private List<MemberInfo> members = [];
+    private MemberInfo? pendingRemoval;
+    private string name = "";
+    private string objectId = "";
+    private HouseholdRole role = HouseholdRole.Member;
+    private string error = "";
+    protected override void OnInitialized() { Refresh(); }
+    private void Refresh()
+    {
+        try { members = Store.Members(); }
+        catch (Exception) { error = "Unable to load household members. Your access may have changed; reload the page."; }
+    }
+    private void Add()
+    {
+        error = "";
+        if (!Guid.TryParse(objectId, out var id)) { error = "Enter a valid Entra user Object ID."; return; }
+        try { Store.SetMember(id, name, role); name = ""; objectId = ""; Refresh(); }
+        catch (UnauthorizedAccessException) { error = "Only a household owner can manage access."; }
+        catch (Exception exception) when (exception is InvalidDataException or InvalidOperationException) { error = exception.Message; }
+        catch (Exception) { error = "Unable to save membership changes."; }
+    }
+    private void Remove()
+    {
+        if (pendingRemoval is null) return;
+        try { Store.SetMember(pendingRemoval.ObjectId, pendingRemoval.Name, null); pendingRemoval = null; Refresh(); }
+        catch (UnauthorizedAccessException) { error = "Only a household owner can manage access."; }
+        catch (InvalidOperationException exception) { error = exception.Message; }
+        catch (Exception) { error = "Unable to remove this member."; }
+    }
+}

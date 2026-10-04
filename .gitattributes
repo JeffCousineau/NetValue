@@ -1,0 +1,8 @@
+* text=auto
+*.cs text
+*.razor text
+*.csproj text
+*.json text
+*.md text
+*.ps1 text
+*.css text

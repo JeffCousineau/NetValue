@@ -1,0 +1,69 @@
+<div class="metric-breakdown" @onmouseenter="Enter" @onmouseleave="Leave" @onfocusin="Focus" @onfocusout="Blur" @onkeydown="HandleKey">
+    <button type="button" id="@triggerId" class="metric-value metric-total-button" aria-label="@($"{Label}: {Money(Total)}. Show calculation breakdown")" aria-expanded="@IsOpen" aria-controls="@panelId" @onclick="Toggle">
+        @Money(Total)<span class="breakdown-indicator" aria-hidden="true">ⓘ</span>
+    </button>
+    @if (IsOpen)
+    {
+        <div id="@panelId" class="calculation-popover" role="region" aria-labelledby="@triggerId">
+            <div class="calculation-heading"><strong>@Label</strong><button type="button" class="calculation-close" aria-label="Close calculation breakdown" @onclick="Close">×</button></div>
+            <p class="calculation-month">@MonthLabel · CAD</p>
+            <div class="calculation-scroll" tabindex="0" aria-label="Accounts used in calculation">
+                @if (entries.Count == 0) { <p class="calculation-empty">No accounts in this calculation yet.</p> }
+                @if (Kind != TotalKind.Liabilities) { @Group(false) }
+                @if (Kind != TotalKind.Assets) { @Group(true) }
+            </div>
+            <div class="calculation-total"><strong>@Label</strong><strong>@Money(Total)</strong></div>
+            <p class="calculation-note">@(Kind == TotalKind.NetWorth ? "Assets − liabilities." : Kind == TotalKind.Assets ? "Cash + investments + property." : "Short-term + long-term liabilities.") Missing balances count as $0.00.</p>
+        </div>
+    }
+</div>
+
+@code {
+    public enum TotalKind { NetWorth, Assets, Liabilities }
+    [Parameter] public IEnumerable<Profile> Profiles { get; set; } = [];
+    [Parameter] public string Month { get; set; } = "";
+    [Parameter] public TotalKind Kind { get; set; }
+    private readonly string triggerId = $"total-{Guid.NewGuid():N}";
+    private readonly string panelId = $"breakdown-{Guid.NewGuid():N}";
+    private bool hovered, focused, pinned, dismissed;
+    private bool IsOpen => !dismissed && (hovered || focused || pinned);
+    private string Label => Kind switch { TotalKind.Assets => "Total assets", TotalKind.Liabilities => "Total liabilities", _ => "Net worth" };
+    private string MonthLabel => DateTime.TryParseExact(Month, "yyyy-MM", CultureInfo.InvariantCulture, DateTimeStyles.None, out var date) ? date.ToString("MMMM yyyy", CultureInfo.GetCultureInfo("en-CA")) : Month;
+    private sealed record Entry(string ProfileName, Account Account, decimal Amount, bool Debt, bool Entered);
+    private List<Entry> entries = [];
+    private bool multipleProfiles;
+    private decimal Total => entries.Sum(entry => Kind == TotalKind.NetWorth && entry.Debt ? -entry.Amount : entry.Amount);
+    protected override void OnParametersSet()
+    {
+        var profiles = Profiles.ToList();
+        multipleProfiles = profiles.Count > 1;
+        entries = profiles.SelectMany(profile => profile.Accounts.Select(account =>
+        {
+            var debt = account.Kind is AccountKind.ShortTermDebt or AccountKind.LongTermDebt;
+            var entered = profile.Months.TryGetValue(Month, out var balances) && balances.ContainsKey(account.Id);
+            var amount = entered ? balances![account.Id] : 0;
+            return new Entry(profile.Name, account, amount, debt, entered);
+        })).Where(entry => Kind == TotalKind.NetWorth || entry.Debt == (Kind == TotalKind.Liabilities)).ToList();
+    }
+    private RenderFragment Group(bool debt) => @<div>
+        @if (entries.Any(entry => entry.Debt == debt))
+        {
+            <div class="calculation-group">@(debt ? "Liabilities" : "Assets") <strong>@Money(entries.Where(entry => entry.Debt == debt).Sum(entry => entry.Amount))</strong></div>
+            @foreach (var entry in entries.Where(entry => entry.Debt == debt))
+            {
+                <div class="calculation-row">
+                    <div><span>@entry.Account.Name</span><small>@(multipleProfiles ? entry.ProfileName + " · " : "")@entry.Account.Institution@if (!entry.Entered) { <span> · Not entered</span> }</small></div>
+                    <span class="calculation-amount">@(Kind == TotalKind.NetWorth ? (debt ? "− " : "+ ") : "")@Money(entry.Amount)</span>
+                </div>
+            }
+        }
+    </div>;
+    private void Enter() { hovered = true; dismissed = false; }
+    private void Leave() { hovered = false; }
+    private void Focus() { focused = true; dismissed = false; }
+    private void Blur() { focused = false; if (!hovered) { pinned = false; dismissed = false; } }
+    private void Toggle() { pinned = !pinned; dismissed = !pinned; }
+    private void Close() { pinned = false; dismissed = true; }
+    private void HandleKey(KeyboardEventArgs args) { if (args.Key == "Escape") Close(); }
+    private static string Money(decimal amount) => amount.ToString("C2", CultureInfo.GetCultureInfo("en-CA"));
+}
