@@ -3,11 +3,13 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.IdentityModel.Tokens;
+using Microsoft.IdentityModel.Validators;
 using NetValue.Data;
 using NetValue.Components;
 
 var builder = WebApplication.CreateBuilder(args);
 var tenantId = builder.Configuration["Authentication:TenantId"]!;
+var selfService = builder.Configuration.GetValue<bool>("Authentication:SelfServiceEnabled");
 var databaseCommands = new[] { "--migrate-database", "--export-database", "--import-database" };
 var selectedCommands = databaseCommands.Where(command => args.Contains(command, StringComparer.Ordinal)).ToList();
 if (selectedCommands.Count > 0)
@@ -56,7 +58,7 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
     })
     .AddOpenIdConnect(options =>
     {
-        options.Authority = $"https://login.microsoftonline.com/{tenantId}/v2.0";
+        options.Authority = $"https://login.microsoftonline.com/{(selfService ? "common" : tenantId)}/v2.0";
         options.ClientId = builder.Configuration["Authentication:ClientId"];
         options.ClientSecret = builder.Configuration["Authentication:ClientSecret"];
         options.SignInScheme = CookieAuthenticationDefaults.AuthenticationScheme;
@@ -70,11 +72,25 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
         options.Scope.Add("openid");
         options.Scope.Add("profile");
         options.TokenValidationParameters = new TokenValidationParameters { ValidateIssuer = true, NameClaimType = "name", RoleClaimType = "roles" };
+        if (selfService)
+        {
+            options.TokenValidationParameters.IssuerValidator = AadIssuerValidator.GetAadIssuerValidator(options.Authority).Validate;
+            options.TokenValidationParameters.EnableAadSigningKeyIssuerValidation();
+        }
         options.Events.OnTokenValidated = context =>
         {
-            if (context.Principal?.FindFirstValue("tid") != tenantId || !Guid.TryParse(context.Principal.FindFirstValue("oid"), out var objectId) || objectId == Guid.Empty)
-                context.Fail("This account is not in the configured directory.");
+            if (!Guid.TryParse(context.Principal?.FindFirstValue("tid"), out var accountTenant) || accountTenant == Guid.Empty
+                || (!selfService && accountTenant != Guid.Parse(tenantId))
+                || !Guid.TryParse(context.Principal?.FindFirstValue("oid"), out var objectId) || objectId == Guid.Empty)
+                context.Fail("This Microsoft account identity is missing or unsupported.");
             else ((ClaimsIdentity)context.Principal.Identity!).AddClaim(new("netvalue:expires", DateTimeOffset.UtcNow.AddHours(8).ToUnixTimeSeconds().ToString()));
+            return Task.CompletedTask;
+        };
+        options.Events.OnRedirectToIdentityProvider = context =>
+        {
+            // Preserve the configured-directory sign-in route for existing invited guest members.
+            if (selfService && context.Properties.Items.ContainsKey("netvalue:directory"))
+                context.ProtocolMessage.IssuerAddress = $"https://login.microsoftonline.com/{tenantId}/oauth2/v2.0/authorize";
             return Task.CompletedTask;
         };
         options.Events.OnRemoteFailure = context =>
@@ -97,11 +113,13 @@ app.UseStaticFiles();
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseAntiforgery();
-app.MapGet("/account/login", (IConfiguration configuration) =>
+app.MapGet("/account/login", (IConfiguration configuration, HttpContext context) =>
 {
     if (string.IsNullOrWhiteSpace(configuration["Authentication:ClientSecret"]))
         return Results.Content("<h1>NetValue sign-in setup</h1><p>Set Authentication:ClientSecret in .NET user secrets, then restart. See docs/AUTHENTICATION.md. No financial data is accessible until sign-in is configured.</p>", "text/html");
-    return Results.Challenge(new AuthenticationProperties { RedirectUri = "/" }, [OpenIdConnectDefaults.AuthenticationScheme]);
+    var properties = new AuthenticationProperties { RedirectUri = "/" };
+    if (context.Request.Query["directory"] == "true") properties.Items["netvalue:directory"] = "true";
+    return Results.Challenge(properties, [OpenIdConnectDefaults.AuthenticationScheme]);
 }).AllowAnonymous();
 app.MapPost("/account/logout", async (HttpContext context) =>
 {

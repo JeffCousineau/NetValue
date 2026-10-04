@@ -10,10 +10,19 @@ public sealed class HouseholdSession(AuthenticationStateProvider authentication,
     public HouseholdAccess? Access { get; private set; }
     public Guid ObjectId => repository.Identity(principal).Object;
     public bool IsOwner => Access?.Role == HouseholdRole.Owner;
+    public bool CanCreateHousehold { get; private set; }
+    public void CreateHousehold(string name) => Access = repository.CreateHousehold(principal, name);
     public async Task InitializeAsync()
     {
         principal = (await authentication.GetAuthenticationStateAsync()).User;
-        Access = repository.Open(principal);
+        CanCreateHousehold = false;
+        try { Access = repository.Open(principal); }
+        catch (UnauthorizedAccessException)
+        {
+            try { CanCreateHousehold = repository.CanCreateHousehold(principal); }
+            catch (UnauthorizedAccessException) { }
+            throw;
+        }
     }
     public List<Profile> Load()
     {
