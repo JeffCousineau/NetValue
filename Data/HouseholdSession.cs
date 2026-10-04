@@ -10,13 +10,22 @@ public sealed class HouseholdSession(AuthenticationStateProvider authentication,
     public HouseholdAccess? Access { get; private set; }
     public Guid ObjectId => repository.Identity(principal).Object;
     public bool IsOwner => Access?.Role == HouseholdRole.Owner;
+    public Guid UserId => repository.UserId(principal);
+    public List<HouseholdChoice> Households() => repository.Households(principal);
+    public string CreateInvitation() => repository.CreateInvitation(principal, Access!.Id);
+    public List<HouseholdInvitation> Invitations() => repository.Invitations(principal, Access!.Id);
+    public void RevokeInvitation(Guid id) => repository.RevokeInvitation(principal, Access!.Id, id);
+    public InvitationPreview PreviewInvitation(string token) => repository.PreviewInvitation(principal, token);
+    public void AcceptInvitation(string token) => Access = repository.AcceptInvitation(principal, token);
+    public void RemoveMember(Guid userId) => repository.RemoveMember(principal, Access!.Id, userId);
+    public void SetMemberRole(Guid userId, HouseholdRole role) => repository.SetMemberRole(principal, Access!.Id, userId, role);
     public bool CanCreateHousehold { get; private set; }
     public void CreateHousehold(string name) => Access = repository.CreateHousehold(principal, name);
-    public async Task InitializeAsync()
+    public async Task InitializeAsync(Guid? householdId = null)
     {
         principal = (await authentication.GetAuthenticationStateAsync()).User;
         CanCreateHousehold = false;
-        try { Access = repository.Open(principal); }
+        try { Access = repository.Open(principal, householdId); }
         catch (UnauthorizedAccessException)
         {
             try { CanCreateHousehold = repository.CanCreateHousehold(principal); }

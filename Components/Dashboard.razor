@@ -2,9 +2,23 @@
 @page "/error"
 @inject HouseholdSession Store
 @inject ILogger<Dashboard> Logger
+@inject NavigationManager Navigation
 <PageTitle>NetValue · Your monthly picture</PageTitle>
 
-@if (loadFailed)
+@if (!string.IsNullOrEmpty(invitationToken))
+{
+    <section class="empty"><h1>Household invitation</h1>
+        @if (invitationPreview is not null)
+        {
+            <p>You’re invited to join <strong>@invitationPreview.HouseholdName</strong> as a Member. Members can view, edit, and export this household’s financial data.</p>
+            <button class="primary" @onclick="AcceptInvitation">Accept invitation</button>
+        }
+        @if (!string.IsNullOrEmpty(invitationError)) { <p role="alert">@invitationError</p> }
+        <p><a href="/">Cancel and return to NetValue</a></p>
+        <form method="post" action="/account/logout"><AntiforgeryToken /><button class="subtle" type="submit">Sign out</button></form>
+    </section>
+}
+else if (loadFailed)
 {
     @if (Store.CanCreateHousehold)
     {
@@ -27,6 +41,13 @@ else
         <a class="brand" href="/"> <span class="brand-icon">N</span> NetValue<span class="brand-dot">.</span></a>
         <div class="workspace-label">PERSONAL FINANCE</div>
         <div class="household-identity">@Store.Access?.Name <small>@Store.Access?.Role</small></div>
+        @if (householdChoices.Count > 1)
+        {
+            <label for="household-choice">Household</label>
+            <select id="household-choice" value="@Store.Access?.Id" @onchange="SwitchHousehold">
+                @foreach (var choice in householdChoices) { <option value="@choice.Id">@choice.Name</option> }
+            </select>
+        }
         <form method="post" action="/account/logout"><AntiforgeryToken /><button class="subtle" type="submit">Sign out</button></form>
         <nav class="view-nav" aria-label="Views">
             <button class="view-button @(!showProgress && !showSettings ? "nav-active" : "")" @onclick="() => ChangeView(false, false)">◈ &nbsp; Monthly overview</button>
@@ -254,6 +275,20 @@ else
     private AccountKind editedAccountKind;
     private string error = "";
     private bool loadFailed;
+    private string invitationToken = "";
+    private string invitationError = "";
+    private InvitationPreview? invitationPreview;
+    private List<HouseholdChoice> householdChoices = [];
+    private void SwitchHousehold(ChangeEventArgs args)
+    {
+        if (Guid.TryParse(args.Value?.ToString(), out var id)) Navigation.NavigateTo("/?household=" + id, forceLoad: true);
+    }
+    private void AcceptInvitation()
+    {
+        try { Store.AcceptInvitation(invitationToken); Navigation.NavigateTo("/?household=" + Store.Access!.Id, forceLoad: true); }
+        catch (Exception exception) when (exception is InvalidDataException or InvalidOperationException or UnauthorizedAccessException) { invitationError = exception.Message; }
+        catch (Exception exception) { Logger.LogError(exception, "Invitation acceptance failed"); invitationError = "Unable to accept this invitation. Please try again."; }
+    }
     private string householdName = "My household";
     private string registrationError = "";
     private async Task CreateHouseholdAsync()
@@ -271,9 +306,17 @@ else
     protected override Task OnInitializedAsync() => LoadHouseholdAsync();
     private async Task LoadHouseholdAsync()
     {
+        Guid? requestedHousehold = null;
+        if (Navigation is not null)
+        {
+            var query = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(new Uri(Navigation.Uri).Query);
+            invitationToken = query.TryGetValue("invite", out var token) ? token.ToString() : "";
+            if (query.TryGetValue("household", out var value) && Guid.TryParse(value, out var id)) requestedHousehold = id;
+        }
         try
         {
-            await Store.InitializeAsync();
+            await Store.InitializeAsync(requestedHousehold);
+            householdChoices = Store.Households();
             profiles = Store.Load();
             selected = profiles.FirstOrDefault()?.Id;
             ResetCopySource();
@@ -286,6 +329,12 @@ else
             Logger.LogError(exception, "Household data could not be loaded.");
             loadFailed = true;
             error = "Your household data could not be loaded. Please try again. If the problem continues, check the application logs.";
+        }
+        if (!string.IsNullOrEmpty(invitationToken))
+        {
+            try { invitationPreview = Store.PreviewInvitation(invitationToken); }
+            catch (Exception exception) when (exception is InvalidDataException or UnauthorizedAccessException) { invitationError = exception.Message; }
+            catch (Exception) { invitationError = "Unable to load this invitation. Please try again."; }
         }
     }
     private void Select(Guid? id) { selected = id; renamingProfile = false; editingAccount = null; pendingDelete = null; ResetCopySource(); }

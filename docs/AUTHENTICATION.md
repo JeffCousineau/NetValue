@@ -30,11 +30,15 @@ If .NET is installed globally, use `dotnet` instead of the temporary SDK path. T
 
 The configured owner's first authorized visit initializes the SQLite household database and imports existing `App_Data/households.json`, or `App_Data/portfolio.json` if there is no household JSON file. Original files are left untouched. Another user cannot claim these records by being the first visitor. Registration is blocked while this legacy import is pending. An existing database is never overwritten by bootstrap configuration. See [database configuration and Azure SQL migration](DATABASE.md).
 
-## Give your wife access
+## Invite someone to your household
 
-Manual sharing remains limited to accounts in the configured Entra directory. Invite her account into that directory and have her redeem the invitation. In Entra → Users, copy her user Object ID. As the household owner, open Settings → Household members, enter her name and Object ID, and select Member or Owner. She must sign in in that directory's context (guests can use `/account/login?directory=true`). This differs from signing in directly with a personal Microsoft account, which has a separate tenant/Object ID identity. Cross-directory invitations and household switching are not included in this change. Owner privileges come from stored membership, not email addresses or browser-selected IDs.
+Open Settings → Household members → Create invitation link. Copy the link and send it privately to the intended recipient. Anyone holding the link can accept it once within seven days. No email delivery service is configured or billed. Invitations grant Member access; owners can change a member's role afterwards.
 
-An owner can revoke membership or update the role; the last owner cannot be removed or demoted. Each data operation checks current membership. Sessions last at most eight hours. Reload the page after any membership change; a previously opened browser can retain information already viewed but cannot save or export after access is revoked. Stale financial saves are rejected through household revisions.
+The recipient signs in with a personal or work/school Microsoft account, reviews the household name and permissions, and explicitly accepts. New recipients join directly without creating a household. Existing recipients keep their own household and can switch households using the sidebar selector. Exports and restores use the selected household. Guest users with legacy directory membership can still use `/account/login?directory=true`.
+
+Owners can revoke pending invitations, remove members, or change roles. The last owner cannot be removed or demoted. A link becomes invalid if its creator no longer owns the household. Invitations use cryptographically random single-use secrets; only their hashes are stored in the database. Links are bearer credentials: keep them private, including HTTP logs and browser history. Invitation URLs are removed after acceptance, with no-referrer and no-store response headers.
+
+Sessions last at most eight hours. Each financial operation checks current membership. Previously viewed data may remain in an open browser after revocation, but new reads, saves, and exports require access. Stale financial saves are rejected through household revisions. Outstanding invitation hashes are included in operator database backups; household financial backups contain neither invitations nor memberships.
 
 ## Backups and deployment
 

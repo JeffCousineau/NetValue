@@ -110,6 +110,12 @@ else app.Use(async (context, next) =>
     else await next(context);
 });
 app.UseStaticFiles();
+app.Use(async (context, next) =>
+{
+    context.Response.Headers["Referrer-Policy"] = "no-referrer";
+    context.Response.Headers.CacheControl = "no-store";
+    await next(context);
+});
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseAntiforgery();
@@ -118,6 +124,8 @@ app.MapGet("/account/login", (IConfiguration configuration, HttpContext context)
     if (string.IsNullOrWhiteSpace(configuration["Authentication:ClientSecret"]))
         return Results.Content("<h1>NetValue sign-in setup</h1><p>Set Authentication:ClientSecret in .NET user secrets, then restart. See docs/AUTHENTICATION.md. No financial data is accessible until sign-in is configured.</p>", "text/html");
     var properties = new AuthenticationProperties { RedirectUri = "/" };
+    var returnUrl = context.Request.Query["ReturnUrl"].ToString();
+    if ((returnUrl == "/" || returnUrl.StartsWith("/?")) && !returnUrl.Contains('\\') && !returnUrl.Any(char.IsControl)) properties.RedirectUri = returnUrl;
     if (context.Request.Query["directory"] == "true") properties.Items["netvalue:directory"] = "true";
     return Results.Challenge(properties, [OpenIdConnectDefaults.AuthenticationScheme]);
 }).AllowAnonymous();
@@ -139,7 +147,13 @@ static IResult Export(HouseholdRepository repository, HttpContext context, bool 
     context.Response.Headers.CacheControl = "no-store";
     try
     {
-        var access = repository.Open(context.User);
+        Guid? household = null;
+        if (context.Request.Query.ContainsKey("household"))
+        {
+            if (!Guid.TryParse(context.Request.Query["household"], out var id)) return Results.BadRequest();
+            household = id;
+        }
+        var access = repository.Open(context.User, household);
         return backup
             ? Results.File(PortfolioBackup.Create(access.Profiles), "application/json", "NetValue-backup.json")
             : Results.File(ExcelExport.Create(access.Profiles), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "NetValue.xlsx");
