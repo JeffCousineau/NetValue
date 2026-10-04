@@ -6,7 +6,7 @@ A Blazor Server app for monthly personal and household net worth, in CAD.
 
 Install the .NET 10 SDK (10.0.401 or a newer patch in that SDK feature band), then run from this folder:
 
-**Sign-in is required.** Complete [Entra setup](docs/AUTHENTICATION.md), including the development client secret in .NET user secrets, before running. The tenant, application ID, and bootstrap owner's user Object ID are configured. Sign-in grants data access only when the user has household membership.
+**Sign-in is required.** Complete [Microsoft sign-in setup](docs/AUTHENTICATION.md), including the supported account audience and development client secret in .NET user secrets, before running. Personal and work/school Microsoft accounts can sign in and create their own empty household. Existing household memberships and the initial owner's data are preserved.
 
 ```powershell
 dotnet run

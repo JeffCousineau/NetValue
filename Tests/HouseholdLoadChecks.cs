@@ -36,6 +36,21 @@ internal static class HouseholdLoadChecks
         await (Task)load.Invoke(dashboard, null)!;
         if ((bool)failed.GetValue(dashboard)! || (string)error.GetValue(dashboard)! != "" || session.Access?.Role != HouseholdRole.Owner)
             throw new Exception("Retry must clear the failed page state and load authorized household access.");
+        configuration["Authentication:SelfServiceEnabled"] = "true";
+        var newcomer = new RecoveringAuthentication(new ClaimsPrincipal(new ClaimsIdentity([
+            new("tid", "9188040d-6c67-4c5b-b112-36a304b66dad"), new("oid", Guid.NewGuid().ToString()),
+            new("netvalue:expires", DateTimeOffset.UtcNow.AddHours(1).ToUnixTimeSeconds().ToString())
+        ], "Test"))) { Fail = false };
+        var signupSession = new HouseholdSession(newcomer, repository);
+        typeof(Dashboard).GetProperty("Store", flags)!.SetValue(dashboard, signupSession);
+        await (Task)load.Invoke(dashboard, null)!;
+        if (!(bool)failed.GetValue(dashboard)! || !signupSession.CanCreateHousehold || signupSession.Access is not null)
+            throw new Exception("A new Microsoft user must be offered registration without loading another household.");
+        typeof(Dashboard).GetField("householdName", flags)!.SetValue(dashboard, "New household");
+        await (Task)typeof(Dashboard).GetMethod("CreateHouseholdAsync", flags)!.Invoke(dashboard, null)!;
+        if ((bool)failed.GetValue(dashboard)! || signupSession.CanCreateHousehold || signupSession.Access?.Name != "New household"
+            || signupSession.Access.Role != HouseholdRole.Owner || signupSession.Access.Profiles.Count != 0)
+            throw new Exception("Successful onboarding must open the new user's empty household and clear the registration state.");
         Console.WriteLine("Household load failure and recovery checks passed.");
     }
 

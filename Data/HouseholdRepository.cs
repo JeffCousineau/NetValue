@@ -53,10 +53,11 @@ public sealed class HouseholdRepository
     public (Guid Tenant, Guid Object) Identity(ClaimsPrincipal principal)
     {
         if (principal.Identity?.IsAuthenticated != true
-            || !Guid.TryParse(principal.FindFirstValue("tid"), out var tenant) || tenant != tenantId
+            || !Guid.TryParse(principal.FindFirstValue("tid"), out var tenant) || tenant == Guid.Empty
+            || (!configuration.GetValue<bool>("Authentication:SelfServiceEnabled") && tenant != tenantId)
             || !Guid.TryParse(principal.FindFirstValue("oid"), out var subject) || subject == Guid.Empty
             || !long.TryParse(principal.FindFirstValue("netvalue:expires"), out var expires) || expires <= DateTimeOffset.UtcNow.ToUnixTimeSeconds())
-            throw new UnauthorizedAccessException("Please sign in with an authorized account from this directory.");
+            throw new UnauthorizedAccessException("Please sign in again with an authorized Microsoft account.");
         return (tenant, subject);
     }
     public HouseholdAccess Open(ClaimsPrincipal principal, Guid? householdId = null)
@@ -65,8 +66,40 @@ public sealed class HouseholdRepository
         lock (gate)
         {
             var database = Read();
-            if (database.Households.Count == 0 && database.StorageRevision == 0) { Bootstrap(principal, identity); database = Read(); }
+            if (database.Households.Count == 0 && database.StorageRevision == 0
+                && identity.Tenant == tenantId && Guid.TryParse(configuration["Households:BootstrapOwnerObjectId"], out var owner) && owner == identity.Object)
+            { Bootstrap(principal, identity); database = Read(); }
             return Access(principal, database, householdId);
+        }
+    }
+    public bool CanCreateHousehold(ClaimsPrincipal principal)
+    {
+        var identity = Identity(principal);
+        lock (gate)
+            return configuration.GetValue<bool>("Authentication:SelfServiceEnabled")
+                && !Read().Users.Any(u => u.TenantId == identity.Tenant && u.ObjectId == identity.Object);
+    }
+    public HouseholdAccess CreateHousehold(ClaimsPrincipal principal, string name)
+    {
+        var identity = Identity(principal);
+        if (!configuration.GetValue<bool>("Authentication:SelfServiceEnabled")) throw new UnauthorizedAccessException("Self-service registration is disabled.");
+        name = name.Trim();
+        if (name.Length is < 1 or > 100) throw new InvalidDataException("Enter a household name between 1 and 100 characters.");
+        lock (gate)
+        {
+            var database = Read();
+            // Repeat submissions return existing access; revoked users cannot regain access by registering again.
+            if (database.Users.Any(u => u.TenantId == identity.Tenant && u.ObjectId == identity.Object)) return Access(principal, database, null);
+            if (database.StorageRevision == 0 && (File.Exists(path) || File.Exists(Path.Combine(root, "portfolio.json"))))
+                throw new InvalidOperationException("The initial household owner must finish importing existing data before registration is available.");
+            var displayName = principal.FindFirstValue("name")?.Trim();
+            if (string.IsNullOrWhiteSpace(displayName)) displayName = "Household owner";
+            var user = new ApplicationUser { TenantId = identity.Tenant, ObjectId = identity.Object, Name = displayName[..Math.Min(displayName.Length, 100)] };
+            var household = new Household { Name = name, Members = [new() { UserId = user.Id, Role = HouseholdRole.Owner }] };
+            database.Users.Add(user);
+            database.Households.Add(household);
+            Write(database);
+            return Access(principal, database, household.Id);
         }
     }
     private HouseholdAccess Access(ClaimsPrincipal principal, HouseholdDatabase database, Guid? householdId)

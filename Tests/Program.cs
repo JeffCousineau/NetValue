@@ -9,6 +9,8 @@ using System.Xml.Linq;
 using System.Text;
 using System.Text.Json;
 
+SelfServiceChecks.Run();
+
 static void Check(bool condition, string message)
 {
     if (!condition) throw new Exception(message);

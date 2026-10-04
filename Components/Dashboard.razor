@@ -6,7 +6,19 @@
 
 @if (loadFailed)
 {
+    @if (Store.CanCreateHousehold)
+    {
+        <section class="empty"><h1>Welcome to NetValue</h1><p>Create your household to start tracking your finances.</p>
+            @if (!string.IsNullOrEmpty(registrationError)) { <p role="alert">@registrationError</p> }
+            <form @onsubmit="CreateHouseholdAsync" @onsubmit:preventDefault><input aria-label="Household name" placeholder="Household name" maxlength="100" required @bind="householdName" /><button class="primary" type="submit">Create household</button></form>
+            <p>Already invited to an existing household? <a href="/account/login?directory=true">Sign in to your invitation</a>.</p>
+            <form method="post" action="/account/logout"><AntiforgeryToken /><button class="subtle" type="submit">Sign out</button></form>
+        </section>
+    }
+    else
+    {
     <section class="empty"><h1>Household access</h1><p role="alert">@error</p><p>No financial data has been loaded.</p><button type="button" @onclick="LoadHouseholdAsync">Try again</button><form method="post" action="/account/logout"><AntiforgeryToken /><button class="subtle" type="submit">Sign out</button></form></section>
+    }
 }
 else
 {
@@ -242,6 +254,15 @@ else
     private AccountKind editedAccountKind;
     private string error = "";
     private bool loadFailed;
+    private string householdName = "My household";
+    private string registrationError = "";
+    private async Task CreateHouseholdAsync()
+    {
+        registrationError = "";
+        try { Store.CreateHousehold(householdName); await LoadHouseholdAsync(); }
+        catch (Exception exception) when (exception is InvalidDataException or InvalidOperationException or UnauthorizedAccessException) { registrationError = exception.Message; }
+        catch (Exception exception) { Logger.LogError(exception, "Household registration failed"); registrationError = "Unable to create your household. Please try again."; }
+    }
     private string SaveStatus = "Changes save automatically";
     private Profile? Current => profiles.FirstOrDefault(p => p.Id == selected);
     private IEnumerable<Profile> VisibleProfiles => Current is { } p ? new[] { p } : profiles;
