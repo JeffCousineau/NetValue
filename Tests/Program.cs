@@ -136,3 +136,4 @@ Check(PortfolioBackup.Read(File.ReadAllBytes(recoveryFile))[0].Id == original.Id
 Console.WriteLine("All backup validation and recovery checks passed.");
 HouseholdSecurityChecks.Run();
 DatabaseChecks.Run();
+await HouseholdLoadChecks.Run();

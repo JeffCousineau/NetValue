@@ -6,7 +6,7 @@
 
 @if (loadFailed)
 {
-    <section class="empty"><h1>Household access</h1><p role="alert">@error</p><p>No financial data has been loaded.</p><form method="post" action="/account/logout"><AntiforgeryToken /><button class="subtle" type="submit">Sign out</button></form></section>
+    <section class="empty"><h1>Household access</h1><p role="alert">@error</p><p>No financial data has been loaded.</p><button type="button" @onclick="LoadHouseholdAsync">Try again</button><form method="post" action="/account/logout"><AntiforgeryToken /><button class="subtle" type="submit">Sign out</button></form></section>
 }
 else
 {
@@ -247,9 +247,18 @@ else
     private IEnumerable<Profile> VisibleProfiles => Current is { } p ? new[] { p } : profiles;
     private decimal TotalAssets => Total(AccountKind.Cash) + Total(AccountKind.Investment) + Total(AccountKind.Property);
     private decimal Debts => Total(AccountKind.ShortTermDebt) + Total(AccountKind.LongTermDebt);
-    protected override async Task OnInitializedAsync()
+    protected override Task OnInitializedAsync() => LoadHouseholdAsync();
+    private async Task LoadHouseholdAsync()
     {
-        try { await Store.InitializeAsync(); profiles = Store.Load(); selected = profiles.FirstOrDefault()?.Id; ResetCopySource(); }
+        try
+        {
+            await Store.InitializeAsync();
+            profiles = Store.Load();
+            selected = profiles.FirstOrDefault()?.Id;
+            ResetCopySource();
+            loadFailed = false;
+            error = "";
+        }
         catch (UnauthorizedAccessException exception) { loadFailed = true; error = exception.Message; }
         catch (Exception exception)
         {
