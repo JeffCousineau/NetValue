@@ -1,6 +1,7 @@
 @page "/"
 @page "/error"
 @inject HouseholdSession Store
+@inject ILogger<Dashboard> Logger
 <PageTitle>NetValue · Your monthly picture</PageTitle>
 
 @if (loadFailed)
@@ -250,7 +251,12 @@ else
     {
         try { await Store.InitializeAsync(); profiles = Store.Load(); selected = profiles.FirstOrDefault()?.Id; ResetCopySource(); }
         catch (UnauthorizedAccessException exception) { loadFailed = true; error = exception.Message; }
-        catch (Exception) { loadFailed = true; error = "Your household data could not be loaded. Check the local data and configuration, then restart."; }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Household data could not be loaded.");
+            loadFailed = true;
+            error = "Your household data could not be loaded. Please try again. If the problem continues, check the application logs.";
+        }
     }
     private void Select(Guid? id) { selected = id; renamingProfile = false; editingAccount = null; pendingDelete = null; ResetCopySource(); }
     private void BeginRenameProfile()
