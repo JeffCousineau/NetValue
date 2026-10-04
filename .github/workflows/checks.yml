@@ -1,0 +1,25 @@
+name: Application CI
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: application-ci-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  checks:
+    name: Application checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - name: Run application and household security checks
+        run: dotnet run --project Tests/NetValue.Checks.csproj --configuration Release
+      - name: Verify publish excludes private data
+        run: |
+          dotnet publish NetValue.csproj --configuration Release --output "$RUNNER_TEMP/netvalue-publish" --no-restore
+          test ! -d "$RUNNER_TEMP/netvalue-publish/App_Data"
