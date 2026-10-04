@@ -9,6 +9,7 @@ public abstract class NetValueContext(DbContextOptions options) : DbContext(opti
     public DbSet<ApplicationUser> Users => Set<ApplicationUser>();
     public DbSet<StoredHousehold> Households => Set<StoredHousehold>();
     public DbSet<StoredMember> Members => Set<StoredMember>();
+    public DbSet<HouseholdInvitation> Invitations => Set<HouseholdInvitation>();
     public DbSet<StoredProfile> Profiles => Set<StoredProfile>();
     public DbSet<StoredAccount> Accounts => Set<StoredAccount>();
     public DbSet<StoredMonth> Months => Set<StoredMonth>();
@@ -21,6 +22,10 @@ public abstract class NetValueContext(DbContextOptions options) : DbContext(opti
         model.Entity<ApplicationUser>().HasIndex(x => new { x.TenantId, x.ObjectId }).IsUnique();
         model.Entity<ApplicationUser>().Property(x => x.Name).HasMaxLength(100);
         model.Entity<StoredHousehold>().Property(x => x.Name).HasMaxLength(100);
+        model.Entity<HouseholdInvitation>().HasIndex(x => x.TokenHash).IsUnique();
+        model.Entity<HouseholdInvitation>().Property(x => x.TokenHash).HasMaxLength(64);
+        model.Entity<HouseholdInvitation>().HasOne<StoredHousehold>().WithMany().HasForeignKey(x => x.HouseholdId).OnDelete(DeleteBehavior.NoAction);
+        model.Entity<HouseholdInvitation>().HasOne<ApplicationUser>().WithMany().HasForeignKey(x => x.CreatedBy).OnDelete(DeleteBehavior.NoAction);
         model.Entity<StoredMember>().HasKey(x => new { x.HouseholdId, x.UserId });
         model.Entity<StoredMember>().HasOne<StoredHousehold>().WithMany().HasForeignKey(x => x.HouseholdId).OnDelete(DeleteBehavior.NoAction);
         model.Entity<StoredMember>().HasOne<ApplicationUser>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.NoAction);

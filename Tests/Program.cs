@@ -10,6 +10,7 @@ using System.Text;
 using System.Text.Json;
 
 SelfServiceChecks.Run();
+InvitationChecks.Run();
 
 static void Check(bool condition, string message)
 {

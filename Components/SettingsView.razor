@@ -6,12 +6,12 @@
 <section class="accounts-panel settings-panel">
     <h2>Export to Excel</h2>
     <p>Download this household’s profiles, accounts, and monthly balances, with calculated totals in an Excel workbook.</p>
-    <a class="primary settings-link" href="/export/excel" download="NetValue.xlsx">Download Excel workbook</a>
+    <a class="primary settings-link" href="@($"/export/excel?household={Store.Access?.Id}")" download="NetValue.xlsx">Download Excel workbook</a>
 </section>
 <section class="accounts-panel settings-panel">
     <h2>Back up &amp; move your data</h2>
     <p>Download a complete backup of this household’s financial data. Restore it into your household on another installation to bring back its profiles, accounts, banks, and monthly balances. Sign-in identities and memberships are managed separately.</p>
-    <a class="primary settings-link" href="/export/backup" download="NetValue-backup.json">Download full backup</a>
+    <a class="primary settings-link" href="@($"/export/backup?household={Store.Access?.Id}")" download="NetValue-backup.json">Download full backup</a>
     <p class="settings-note">Downloads include the latest successfully saved data. Finish editing balances before downloading. The JSON backup preserves missing entries and zeroes exactly.</p>
 </section>
 @if (Store.IsOwner)

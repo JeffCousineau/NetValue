@@ -30,6 +30,8 @@ internal static class HouseholdLoadChecks
         var load = typeof(Dashboard).GetMethod("LoadHouseholdAsync", flags)!;
         var failed = typeof(Dashboard).GetField("loadFailed", flags)!;
         var error = typeof(Dashboard).GetField("error", flags)!;
+        var navigation = new TestNavigation("https://netvalue.test/");
+        typeof(Dashboard).GetProperty("Navigation", flags)!.SetValue(dashboard, navigation);
         await (Task)load.Invoke(dashboard, null)!;
         if (!(bool)failed.GetValue(dashboard)! || session.Access is not null) throw new Exception("Failed loading must keep household data inaccessible.");
         authentication.Fail = false;
@@ -51,6 +53,18 @@ internal static class HouseholdLoadChecks
         if ((bool)failed.GetValue(dashboard)! || signupSession.CanCreateHousehold || signupSession.Access?.Name != "New household"
             || signupSession.Access.Role != HouseholdRole.Owner || signupSession.Access.Profiles.Count != 0)
             throw new Exception("Successful onboarding must open the new user's empty household and clear the registration state.");
+        var ownerPrincipal = (await authentication.GetAuthenticationStateAsync()).User;
+        var token = repository.CreateInvitation(ownerPrincipal, session.Access!.Id);
+        navigation.Go("https://netvalue.test/?invite=" + token);
+        await (Task)load.Invoke(dashboard, null)!;
+        if (typeof(Dashboard).GetField("invitationPreview", flags)!.GetValue(dashboard) is not InvitationPreview)
+            throw new Exception("Invitation links must show an acceptance preview for an existing personal account.");
+        typeof(Dashboard).GetMethod("AcceptInvitation", flags)!.Invoke(dashboard, null);
+        if (signupSession.Access?.Id != session.Access.Id || !navigation.Uri.Contains("?household=" + session.Access.Id))
+            throw new Exception("Accepting an invitation must open the invited household.");
+        await (Task)load.Invoke(dashboard, null)!;
+        if ((bool)failed.GetValue(dashboard)! || typeof(Dashboard).GetField("invitationToken", flags)!.GetValue(dashboard)?.ToString() != "")
+            throw new Exception("The consumed invitation token must be cleared from the URL.");
         Console.WriteLine("Household load failure and recovery checks passed.");
     }
 
@@ -60,5 +74,11 @@ internal static class HouseholdLoadChecks
         public override Task<AuthenticationState> GetAuthenticationStateAsync() => Fail
             ? throw new InvalidOperationException("Temporary authentication-state failure.")
             : Task.FromResult(new AuthenticationState(principal));
+    }
+    private sealed class TestNavigation : Microsoft.AspNetCore.Components.NavigationManager
+    {
+        public TestNavigation(string uri) => Initialize("https://netvalue.test/", uri);
+        public void Go(string uri) => Uri = uri;
+        protected override void NavigateToCore(string uri, bool forceLoad) => Uri = ToAbsoluteUri(uri).ToString();
     }
 }

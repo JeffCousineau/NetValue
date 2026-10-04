@@ -70,3 +70,7 @@ Household revisions reject financial edits from stale tabs. A database-wide revi
 Run `dotnet run --project Tests/NetValue.Checks.csproj`. The checks exercise real SQLite migrations/storage, legacy JSON import, exact amounts, account order, missing versus zero, ownership boundaries, revocation, stale writes, recovery, and complete operator transfers. They also verify SQL Server migration generation and both model snapshots. A live Azure SQL integration test is still required before deployment.
 
 The project targets .NET 10 with EF Core 10. The SDK version is pinned in global.json.
+
+## Household invitations
+
+The HouseholdInvitations migration adds an Invitations table for hashed, single-use links, household and creator IDs, and UTC expiry. Apply production migrations before deploying the invitation-enabled application; the existing controlled deployment workflow does this. SQLite and SQL Server migration histories are both updated. Existing financial data and memberships are unchanged. Operator backups preserve outstanding invitation hashes; financial backups exclude them. Legacy operator backups without an Invitations field remain supported.

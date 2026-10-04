@@ -59,7 +59,7 @@ public sealed class RelationalHouseholdStorage
     {
         using var db = Open();
         using var transaction = db.Database.BeginTransaction(IsolationLevel.Serializable);
-        var result = new HouseholdDatabase { StorageRevision = db.Storage.SingleOrDefault(x => x.Id == 1)?.Revision ?? 0, Users = db.Users.AsNoTracking().ToList() };
+        var result = new HouseholdDatabase { StorageRevision = db.Storage.SingleOrDefault(x => x.Id == 1)?.Revision ?? 0, Users = db.Users.AsNoTracking().ToList(), Invitations = db.Invitations.AsNoTracking().ToList() };
         var members = db.Members.AsNoTracking().ToList();
         var profiles = db.Profiles.AsNoTracking().OrderBy(x => x.Position).ToList();
         var accounts = db.Accounts.AsNoTracking().OrderBy(x => x.Position).ToList();
@@ -122,6 +122,7 @@ public sealed class RelationalHouseholdStorage
         Sync(db, db.Users, data.Users, x => x.Id);
         Sync(db, db.Households, households, x => x.Id);
         Sync(db, db.Members, members, x => (x.HouseholdId, x.UserId));
+        Sync(db, db.Invitations, data.Invitations, x => x.Id);
         Sync(db, db.Profiles, profiles, x => (x.HouseholdId, x.Id));
         Sync(db, db.Accounts, accounts, x => (x.HouseholdId, x.ProfileId, x.Id));
         Sync(db, db.Months, months, x => (x.HouseholdId, x.ProfileId, x.Month));
@@ -144,6 +145,11 @@ public sealed class RelationalHouseholdStorage
 
     public static void Validate(HouseholdDatabase data)
     {
+        if (data.Version != 1 || data.Users is null || data.Households is null || data.Households.Any(h => h is null) || data.Users.Any(u => u is null)) throw new InvalidDataException("Unsupported or invalid household data.");
+        if (data.Invitations is null || data.Invitations.Any(i => i is null || i.Id == Guid.Empty || i.TokenHash is null || i.TokenHash.Length != 64
+            || i.TokenHash.Any(c => !Uri.IsHexDigit(c)) || !data.Households.Any(h => h.Id == i.HouseholdId) || !data.Users.Any(u => u.Id == i.CreatedBy))
+            || data.Invitations.Select(i => i.Id).Distinct().Count() != data.Invitations.Count
+            || data.Invitations.Select(i => i.TokenHash).Distinct().Count() != data.Invitations.Count) throw new InvalidDataException("Invalid invitation data.");
         if (data.Version != 1 || data.Users is null || data.Households is null) throw new InvalidDataException("Unsupported or invalid household data.");
         if (data.Households.Any(h => h is null) || data.Users.Any(u => u is null || u.Id == Guid.Empty || u.TenantId == Guid.Empty || u.ObjectId == Guid.Empty || string.IsNullOrWhiteSpace(u.Name) || u.Name.Length > 100)
             || data.Users.Select(u => u.Id).Distinct().Count() != data.Users.Count
