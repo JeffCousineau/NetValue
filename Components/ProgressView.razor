@@ -12,7 +12,7 @@ else
     var latest = rows[^1];
     var change = latest.NetWorth - first.NetWorth;
     <section class="metrics">
-        <article class="net-card"><div class="metric-label">LATEST NET WORTH</div><MetricTotal Profiles="selectedProfiles" Month="@(latest.Month.ToString("yyyy-MM"))" Kind="MetricTotal.TotalKind.NetWorth" /><div class="metric-foot">@MonthLabel(latest.Month)</div></article>
+        <article class="net-card"><div class="metric-label">LATEST NET WORTH</div><MetricTotal HideAmounts="HideAmounts" Profiles="selectedProfiles" Month="@(latest.Month.ToString("yyyy-MM"))" Kind="MetricTotal.TotalKind.NetWorth" /><div class="metric-foot">@MonthLabel(latest.Month)</div></article>
         <article><div class="metric-label">CHANGE SINCE FIRST MONTH</div><div class="metric-value @ChangeClass(change)">@(rows.Count > 1 ? SignedMoney(change) : "—")</div><div class="metric-foot">@(rows.Count > 1 ? Percentage(change, first.NetWorth) + " · since " + MonthLabel(first.Month) : "Add another month to compare")</div></article>
         <article><div class="metric-label">MONTHS RECORDED</div><div class="metric-value">@rows.Count</div><div class="metric-foot">@MonthLabel(first.Month) – @MonthLabel(latest.Month)</div></article>
     </section>
@@ -63,6 +63,7 @@ else
 }
 
 @code {
+    [Parameter] public bool HideAmounts { get; set; }
     [Parameter] public Profile? Profile { get; set; }
     [Parameter] public IEnumerable<Profile> HouseholdProfiles { get; set; } = [];
     [Parameter] public EventCallback<string> OnMonthSelected { get; set; }
@@ -88,9 +89,9 @@ else
     private string Points => string.Join(" ", rows.Select(row => $"{Coordinate(X(row))},{Coordinate(Y(row))}"));
     private static string Coordinate(double value) => value.ToString("0.##", CultureInfo.InvariantCulture);
     private static string Coordinate(decimal value) => value.ToString("0.##", CultureInfo.InvariantCulture);
-    private static string Money(decimal value) => value.ToString("C2", CultureInfo.GetCultureInfo("en-CA"));
-    private static string SignedMoney(decimal value) => (value > 0 ? "+" : "") + Money(value);
+    private string Money(decimal value) => HideAmounts ? "••••" : value.ToString("C2", CultureInfo.GetCultureInfo("en-CA"));
+    private string SignedMoney(decimal value) => HideAmounts ? "••••" : (value > 0 ? "+" : "") + Money(value);
     private static string MonthLabel(DateTime value) => value.ToString("MMM yyyy", CultureInfo.GetCultureInfo("en-CA"));
-    private static string ChangeClass(decimal? value) => value > 0 ? "change-positive" : value < 0 ? "change-negative" : "";
-    private static string Percentage(decimal change, decimal previous) => MonthlyProgress.Percent(change, previous) is { } percentage ? (percentage > 0 ? "+" : "") + percentage.ToString("0.0", CultureInfo.GetCultureInfo("en-CA")) + "%" : "—";
+    private string ChangeClass(decimal? value) => HideAmounts ? "" : value > 0 ? "change-positive" : value < 0 ? "change-negative" : "";
+    private string Percentage(decimal change, decimal previous) => HideAmounts ? "••••" : MonthlyProgress.Percent(change, previous) is { } percentage ? (percentage > 0 ? "+" : "") + percentage.ToString("0.0", CultureInfo.GetCultureInfo("en-CA")) + "%" : "—";
 }

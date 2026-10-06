@@ -100,6 +100,7 @@ else
                 </div>
             }
         </header>
+        <div class="privacy-toolbar"><button type="button" class="subtle privacy-toggle" aria-pressed="@hideAmounts" @onclick="() => hideAmounts = !hideAmounts">@(hideAmounts ? "Show amounts" : "Hide amounts")</button>@if (hideAmounts) { <span role="status">Privacy mode · amounts hidden</span> }</div>
         <div class="context-bar"><span><span class="status-dot"></span> @(Current?.Name ?? "Household") <span class="muted">/ Canadian dollars</span></span><span class="muted">@SaveStatus</span></div>
         @if (!string.IsNullOrEmpty(error)) { <div class="error" role="alert">@error</div> }
         @if (showSettings)
@@ -108,14 +109,14 @@ else
         }
         else if (showProgress)
         {
-            <ProgressView Profile="Current" HouseholdProfiles="profiles" OnMonthSelected="ReviewMonth" />
+            <ProgressView HideAmounts="hideAmounts" Profile="Current" HouseholdProfiles="profiles" OnMonthSelected="ReviewMonth" />
         }
         else
         {
         <section class="metrics">
-            <article class="net-card"><div class="metric-label">NET WORTH <span>↗</span></div><MetricTotal Profiles="VisibleProfiles" Month="@month" Kind="MetricTotal.TotalKind.NetWorth" /><div class="metric-foot">Assets minus liabilities</div></article>
-            <article><div class="metric-label">TOTAL ASSETS <span class="green">↗</span></div><MetricTotal Profiles="VisibleProfiles" Month="@month" Kind="MetricTotal.TotalKind.Assets" /><div class="metric-foot">Cash, investments &amp; property</div></article>
-            <article><div class="metric-label">TOTAL LIABILITIES <span>↘</span></div><MetricTotal Profiles="VisibleProfiles" Month="@month" Kind="MetricTotal.TotalKind.Liabilities" /><div class="metric-foot">Credit cards, loans &amp; mortgage</div></article>
+            <article class="net-card"><div class="metric-label">NET WORTH <span>↗</span></div><MetricTotal HideAmounts="hideAmounts" Profiles="VisibleProfiles" Month="@month" Kind="MetricTotal.TotalKind.NetWorth" /><div class="metric-foot">Assets minus liabilities</div></article>
+            <article><div class="metric-label">TOTAL ASSETS <span class="green">↗</span></div><MetricTotal HideAmounts="hideAmounts" Profiles="VisibleProfiles" Month="@month" Kind="MetricTotal.TotalKind.Assets" /><div class="metric-foot">Cash, investments &amp; property</div></article>
+            <article><div class="metric-label">TOTAL LIABILITIES <span>↘</span></div><MetricTotal HideAmounts="hideAmounts" Profiles="VisibleProfiles" Month="@month" Kind="MetricTotal.TotalKind.Liabilities" /><div class="metric-foot">Credit cards, loans &amp; mortgage</div></article>
         </section>
         @if (profiles.Count == 0)
         {
@@ -176,7 +177,7 @@ else
                                 {
                                     <div class="account-actions">
                                         <div class="account-balance-history">
-                                            <div class="balance-input"><span>$</span><input type="number" step="0.01" min="0" aria-label="@($"{account.Name} balance")" @bind:get="BalanceText(profile, account)" @bind:set="value => UpdateBalance(profile, account, value)" /></div>
+                                            @if (hideAmounts) { <div class="balance-input hidden-balance" aria-label="Balance hidden">••••</div> } else { <div class="balance-input"><span>$</span><input type="number" step="0.01" min="0" aria-label="@($"{account.Name} balance")" @bind:get="BalanceText(profile, account)" @bind:set="value => UpdateBalance(profile, account, value)" /></div> }
                                             <small class="previous-balance">Last month: @PreviousBalance(profile, account)</small>
                                         </div>
                                         <button class="subtle" aria-label="@($"Edit {account.Name}")" @onclick="() => BeginEditAccount(account)">Edit</button>
@@ -220,6 +221,7 @@ else
 
 @code {
     private List<Profile> profiles = [];
+    private bool hideAmounts;
     private bool showProgress;
     private bool showSettings;
     private void ChangeView(bool progress, bool settings) { showProgress = progress; showSettings = settings; }
@@ -394,7 +396,7 @@ else
         month = date.AddMonths(direction).ToString("yyyy-MM");
         ResetCopySource();
     }
-    private static string Money(decimal value) => value.ToString("C2", CultureInfo.GetCultureInfo("en-CA"));
+    private string Money(decimal value) => hideAmounts ? "••••" : value.ToString("C2", CultureInfo.GetCultureInfo("en-CA"));
     private decimal Value(Profile profile, Account account) => profile.Months.TryGetValue(month, out var balances) ? balances.GetValueOrDefault(account.Id) : 0;
     private string PreviousBalance(Profile profile, Account account)
     {
