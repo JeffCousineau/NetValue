@@ -21,6 +21,7 @@
 @code {
     public enum TotalKind { NetWorth, Assets, Liabilities }
     [Parameter] public IEnumerable<Profile> Profiles { get; set; } = [];
+    [Parameter] public bool HideAmounts { get; set; }
     [Parameter] public string Month { get; set; } = "";
     [Parameter] public TotalKind Kind { get; set; }
     private readonly string triggerId = $"total-{Guid.NewGuid():N}";
@@ -53,7 +54,7 @@
             {
                 <div class="calculation-row">
                     <div><span>@entry.Account.Name</span><small>@(multipleProfiles ? entry.ProfileName + " · " : "")@entry.Account.Institution@if (!entry.Entered) { <span> · Not entered</span> }</small></div>
-                    <span class="calculation-amount">@(Kind == TotalKind.NetWorth ? (debt ? "− " : "+ ") : "")@Money(entry.Amount)</span>
+                    <span class="calculation-amount">@(!HideAmounts && Kind == TotalKind.NetWorth ? (debt ? "− " : "+ ") : "")@Money(entry.Amount)</span>
                 </div>
             }
         }
@@ -65,5 +66,5 @@
     private void Toggle() { pinned = !pinned; dismissed = !pinned; }
     private void Close() { pinned = false; dismissed = true; }
     private void HandleKey(KeyboardEventArgs args) { if (args.Key == "Escape") Close(); }
-    private static string Money(decimal amount) => amount.ToString("C2", CultureInfo.GetCultureInfo("en-CA"));
+    private string Money(decimal amount) => HideAmounts ? "••••" : amount.ToString("C2", CultureInfo.GetCultureInfo("en-CA"));
 }

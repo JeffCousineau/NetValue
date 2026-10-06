@@ -48,9 +48,9 @@ Console.WriteLine("All monthly progress checks passed.");
 
 using var services = new ServiceCollection().AddLogging().BuildServiceProvider();
 await using var renderer = new HtmlRenderer(services, services.GetRequiredService<ILoggerFactory>());
-async Task<string> Render(Profile? value) => await renderer.Dispatcher.InvokeAsync(async () =>
+async Task<string> Render(Profile? value, bool hideAmounts = false) => await renderer.Dispatcher.InvokeAsync(async () =>
 {
-    var output = await renderer.RenderComponentAsync<ProgressView>(ParameterView.FromDictionary(new Dictionary<string, object?> { ["Profile"] = value }));
+    var output = await renderer.RenderComponentAsync<ProgressView>(ParameterView.FromDictionary(new Dictionary<string, object?> { ["Profile"] = value, ["HideAmounts"] = hideAmounts }));
     return output.ToHtmlString();
 });
 var historyHtml = await Render(profile);
@@ -65,13 +65,17 @@ var householdHtml = await renderer.Dispatcher.InvokeAsync(async () =>
     return output.ToHtmlString();
 });
 Check(householdHtml.Contains("Household") && householdHtml.Contains("$4,900.00") && householdHtml.Contains("Partial"), "Household progress must render combined history and partial months.");
+var privateHistoryHtml = await Render(profile, hideAmounts: true);
+Check(!privateHistoryHtml.Contains("$") && !privateHistoryHtml.Contains("200.0%"), "Privacy mode must hide amounts and percentage values in history, chart tooltips, and accessible labels.");
+Check(privateHistoryHtml.Contains("polyline") && privateHistoryHtml.Contains("Monthly history"), "Privacy mode must preserve the chart and history layout.");
+Check((await Render(profile)).Contains("$1,200.00"), "Turning privacy mode off must reveal the original amounts.");
 Console.WriteLine("All progress rendering checks passed.");
 
-async Task<string> RenderTotal(IEnumerable<Profile> values, string month, MetricTotal.TotalKind kind) => await renderer.Dispatcher.InvokeAsync(async () =>
+async Task<string> RenderTotal(IEnumerable<Profile> values, string month, MetricTotal.TotalKind kind, bool hideAmounts = false) => await renderer.Dispatcher.InvokeAsync(async () =>
 {
     var output = await renderer.RenderComponentAsync<MetricTotal>(ParameterView.FromDictionary(new Dictionary<string, object?>
     {
-        ["Profiles"] = values, ["Month"] = month, ["Kind"] = kind
+        ["Profiles"] = values, ["Month"] = month, ["Kind"] = kind, ["HideAmounts"] = hideAmounts
     }));
     return output.ToHtmlString();
 });
@@ -80,6 +84,11 @@ Check((await RenderTotal([profile], "2026-01", MetricTotal.TotalKind.Liabilities
 Check((await RenderTotal([profile], "2026-01", MetricTotal.TotalKind.NetWorth)).Contains("-$100.00"), "Net worth must subtract debt even when the result is negative.");
 Check((await RenderTotal([profile, second], "2026-01", MetricTotal.TotalKind.NetWorth)).Contains("$4,900.00"), "Household breakdown must combine the selected profiles.");
 Check((await RenderTotal([profile], "2026-03", MetricTotal.TotalKind.NetWorth)).Contains("$0.00"), "Missing months must count as zero.");
+foreach (var kind in Enum.GetValues<MetricTotal.TotalKind>())
+{
+    var privateTotalHtml = await RenderTotal([profile, second], "2026-01", kind, hideAmounts: true);
+    Check(!privateTotalHtml.Contains("$"), "Privacy mode must hide metric totals in both text and accessible labels.");
+}
 Console.WriteLine("All metric total rendering checks passed.");
 
 var zero = new Account { Name = "=SUM(A1:A2) & <test>", Kind = AccountKind.Cash };
